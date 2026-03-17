@@ -1,12 +1,42 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-atendimento}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-atendimento}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-atendimento}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
   api:
     build: .
     expose:
       - "8000"
     environment:
       - APP_MODE=api
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-atendimento}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-atendimento}
+      - REDIS_URL=redis://redis:6379
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - CHATWOOT_URL=${CHATWOOT_URL}
@@ -14,17 +44,31 @@ services:
       - CHATWOOT_WEBHOOK_SECRET=${CHATWOOT_WEBHOOK_SECRET}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
     restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
 
   worker:
     build: .
     environment:
       - APP_MODE=worker
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-atendimento}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-atendimento}
+      - REDIS_URL=redis://redis:6379
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
     restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
 
   frontend:
     build:
@@ -32,9 +76,13 @@ services:
       dockerfile: Dockerfile
     expose:
       - "3000"
+    environment:
+      - API_URL=http://api:8000
     restart: always
     depends_on:
       - api
+    networks:
+      - internal
 
   nginx:
     image: nginx:alpine
@@ -46,3 +94,13 @@ services:
       - api
       - frontend
     restart: always
+    networks:
+      - internal
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  internal:
+    driver: bridge
