@@ -880,8 +880,9 @@ async def startup_event():
 
     if DATABASE_URL:
         try:
+            _asyncpg_url = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://", 1)
             db_pool = await asyncpg.create_pool(
-                DATABASE_URL,
+                _asyncpg_url,
                 min_size=2,
                 max_size=10,
                 command_timeout=20,
@@ -890,9 +891,6 @@ async def startup_event():
             import src.core.database as core_database
             core_database.db_pool = db_pool
             logger.info("🐘 Conexão com PostgreSQL estabelecida com sucesso!")
-        except asyncpg.PostgresConnectionStatusError as e:
-            logger.error(f"❌ Falha de autenticação no PostgreSQL: {e}")
-            raise e
         except asyncpg.CannotConnectNowError as e:
             logger.error(f"❌ PostgreSQL não está aceitando conexões: {e}")
             raise e
